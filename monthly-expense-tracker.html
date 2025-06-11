@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Expense Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background */
+        }
+        /* Custom scrollbar for webkit browsers */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .modal {
+            display: none; /* Hidden by default */
+        }
+        .modal.flex { /* Tailwind class to show modal */
+            display: flex;
+        }
+        /* Custom styling for Chart.js tooltip */
+        .chartjs-tooltip {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border-radius: 4px;
+            padding: 6px;
+        }
+        .chartjs-tooltip-key {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            margin-right: 5px;
+        }
+        /* Animation for modal entry */
+        .animate-modalEnter {
+            transition-property: transform, opacity;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 300ms;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-5xl">
+        <header class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-xl shadow-lg mb-8">
+            <div class="flex flex-col sm:flex-row justify-between items-center">
+                <h1 class="text-3xl font-bold mb-4 sm:mb-0">Monthly Expense Tracker</h1>
+                <div class="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+                    <div>
+                        <span class="text-sm opacity-80">Total Budget</span><br />
+                        <strong class="text-2xl">₹<span id="totalBudget">0.00</span></strong>
+                        <span class="block text-xs opacity-70 hover:opacity-100 cursor-pointer mt-1" onclick="openModal('budgetModal')">✏️ Edit Budget</span>
+                    </div>
+                    <div>
+                        <span class="text-sm opacity-80">Remaining</span><br />
+                        <strong class="text-2xl">₹<span id="remainingBudget">0.00</span></strong>
+                    </div>
+                    <div id="overdueAmount" class="text-red-300 font-semibold text-sm mt-2 sm:mt-0"></div>
+                </div>
+            </div>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <section class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-6 text-gray-700">Add New Expense</h2>
+                <div class="space-y-4">
+                    <input type="text" id="desc" placeholder="e.g., Groceries" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                    <input type="number" id="amount" placeholder="Amount (₹)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                    <select id="category" onchange="handleCategoryChange(this)" class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                        <option value="">Select a category</option>
+                        <option value="Groceries">Groceries</option>
+                        <option value="Travel">Travel</option>
+                        <option value="Bills">Bills</option>
+                        <option value="Entertainment">Entertainment</option>
+                        <option value="Food">Food</option>
+                        <option value="Shopping">Shopping</option>
+                        <option value="Health">Health</option>
+                        <option value="Other">Other</option>
+                        <option value="__add__" class="text-blue-600 font-semibold">➕ Add Custom Category</option>
+                    </select>
+                    <input type="date" id="date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                    <button onclick="addExpense()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-lg shadow-md hover:shadow-lg transition-all transform hover:scale-105 duration-300 ease-in-out">
+                        + Add Expense
+                    </button>
+                </div>
+            </section>
+            <section class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4 sm:mb-0">Monthly Summary</h2>
+                    <div class="flex gap-2">
+                         <button onclick="exportData()" class="bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 ease-in-out text-sm">
+                            Export Data
+                        </button>
+                        <button onclick="openModal('confirmClearModal')" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 ease-in-out text-sm">
+                            Clear All Data
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-center">
+                    <div class="bg-blue-50 p-4 rounded-lg shadow">
+                        <span class="text-sm text-gray-600">Total Expenses</span><br />
+                        <strong class="text-xl text-blue-600">₹<span id="totalExpenses">0.00</span></strong>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg shadow">
+                        <span class="text-sm text-gray-600">Avg/Day</span><br />
+                        <strong class="text-xl text-green-600">₹<span id="avgPerDay">0.00</span></strong>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg shadow">
+                        <span class="text-sm text-gray-600">Top Category</span><br />
+                        <strong class="text-xl text-purple-600"><span id="topCategory">-</span></strong>
+                    </div>
+                </div>
+                <div>
+                    <canvas id="expenseChart" class="w-full h-64 sm:h-80"></canvas>
+                </div>
+            </section>
+        </main>
+         <section class="mt-8 bg-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-2xl font-semibold mb-6 text-gray-700">Expense List</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount (₹)</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expenseTableBody" class="bg-white divide-y divide-gray-200">
+                        <tr id="noExpensesRow">
+                            <td colspan="5" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No expenses added yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div id="budgetModal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 items-center justify-center p-4 z-50">
+        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md transform transition-all scale-95 opacity-0 animate-modalEnter">
+            <h3 class="text-2xl font-semibold mb-6 text-gray-800 text-center">Set Your Monthly Budget</h3>
+            <input type="number" id="budgetInput" placeholder="Enter budget amount (₹)" class="w-full p-3 border border-gray-300 rounded-lg mb-6 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            <div class="flex gap-4">
+                <button class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold p-3 rounded-lg transition-colors" onclick="closeModal('budgetModal')">Cancel</button>
+                <button class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-lg transition-colors" onclick="setBudget()">Set Budget</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="categoryModal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 items-center justify-center p-4 z-50">
+        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md transform transition-all scale-95 opacity-0 animate-modalEnter">
+            <h3 class="text-2xl font-semibold mb-6 text-gray-800 text-center">Add Custom Category</h3>
+            <input type="text" id="customCategoryInput" placeholder="e.g., Education" class="w-full p-3 border border-gray-300 rounded-lg mb-6 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            <div class="flex gap-4">
+                <button class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold p-3 rounded-lg transition-colors" onclick="closeModal('categoryModal'); document.getElementById('category').value = '';">Cancel</button>
+                <button class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-lg transition-colors" onclick="addCustomCategory()">Add Category</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="confirmClearModal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 items-center justify-center p-4 z-50">
+        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md transform transition-all scale-95 opacity-0 animate-modalEnter">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800 text-center">Confirm Clear Data</h3>
+            <p class="text-gray-600 mb-6 text-center">Are you sure you want to clear all your expense data? This action cannot be undone.</p>
+            <div class="flex gap-4">
+                <button class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold p-3 rounded-lg transition-colors" onclick="closeModal('confirmClearModal')">Cancel</button>
+                <button class="flex-1 bg-red-500 hover:bg-red-600 text-white font-semibold p-3 rounded-lg transition-colors" onclick="clearAllData()">Yes, Clear Data</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="notificationToast" class="fixed bottom-5 right-5 bg-green-600 text-white py-3 px-5 rounded-lg shadow-xl transition-opacity duration-300 opacity-0 z-50">
+        <span id="notificationMessage"></span>
+    </div>
+
+    <script>
+        // Global variables
+        let budget = 0;
+        let expenses = []; // Array to store expense objects {id, desc, amount, category, date}
+        let customCategories = [];
+        let expenseChart; // To store the Chart.js instance
+
+        // DOM Elements
+        const totalBudgetEl = document.getElementById('totalBudget');
+        const remainingBudgetEl = document.getElementById('remainingBudget');
+        const overdueAmountEl = document.getElementById('overdueAmount');
+        const totalExpensesEl = document.getElementById('totalExpenses');
+        const avgPerDayEl = document.getElementById('avgPerDay');
+        const topCategoryEl = document.getElementById('topCategory');
+        const budgetInputEl = document.getElementById('budgetInput');
+        const descInputEl = document.getElementById('desc');
+        const amountInputEl = document.getElementById('amount');
+        const categorySelectEl = document.getElementById('category');
+        const dateInputEl = document.getElementById('date');
+        const customCategoryInputEl = document.getElementById('customCategoryInput');
+        const expenseTableBodyEl = document.getElementById('expenseTableBody');
+        const noExpensesRowEl = document.getElementById('noExpensesRow'); // Keep this reference
+        const notificationToastEl = document.getElementById('notificationToast');
+        const notificationMessageEl = document.getElementById('notificationMessage');
+
+        // --- Modal Management ---
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.add('flex'); // Make modal visible
+            const modalContent = modal.querySelector('.animate-modalEnter');
+            if (modalContent) {
+                // Trigger reflow to ensure animation plays
+                void modalContent.offsetWidth; 
+                modalContent.classList.remove('scale-95', 'opacity-0');
+                modalContent.classList.add('scale-100', 'opacity-100');
+            }
+            if (modalId === 'budgetModal') {
+                budgetInputEl.value = budget > 0 ? budget : '';
+                budgetInputEl.focus();
+            } else if (modalId === 'categoryModal') {
+                customCategoryInputEl.value = '';
+                customCategoryInputEl.focus();
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            const modalContent = modal.querySelector('.animate-modalEnter');
+            if (modalContent) {
+                modalContent.classList.add('scale-95', 'opacity-0');
+                modalContent.classList.remove('scale-100', 'opacity-100');
+                // Wait for animation to finish before hiding
+                setTimeout(() => {
+                    modal.classList.remove('flex');
+                }, 300); // Duration should match animation duration
+            } else {
+                 modal.classList.remove('flex'); // Fallback if no animation class
+            }
+        }
+        
+        // --- Notification Toast ---
+        let toastTimeout;
+        function showNotification(message, type = 'success') {
+            notificationMessageEl.textContent = message;
+            // Reset classes
+            notificationToastEl.className = 'fixed bottom-5 right-5 text-white py-3 px-5 rounded-lg shadow-xl transition-opacity duration-300 opacity-0 z-50';
+
+            if (type === 'error') {
+                notificationToastEl.classList.add('bg-red-600');
+            } else if (type === 'info') {
+                notificationToastEl.classList.add('bg-blue-600');
+            } else { // success
+                notificationToastEl.classList.add('bg-green-600');
+            }
+            
+            notificationToastEl.classList.remove('opacity-0');
+            notificationToastEl.classList.add('opacity-100');
+
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                notificationToastEl.classList.remove('opacity-100');
+                notificationToastEl.classList.add('opacity-0');
+            }, 3000);
+        }
+
+        // --- Budget Functions ---
+        function setBudget() {
+            const value = parseFloat(budgetInputEl.value);
+            if (!isNaN(value) && value >= 0) {
+                budget = value;
+                localStorage.setItem("expenseBudget", budget.toString());
+                totalBudgetEl.innerText = budget.toFixed(2);
+                updateSummary();
+                showNotification('Budget updated successfully!', 'success');
+                closeModal('budgetModal');
+            } else {
+                showNotification('Please enter a valid budget amount.', 'error');
+                budgetInputEl.focus();
+            }
+        }
+
+        // --- Category Functions ---
+        function handleCategoryChange(select) {
+            if (select.value === "__add__") {
+                openModal('categoryModal');
+            }
+        }
+
+        function addCategoryOption(name, selectElement = categorySelectEl) {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            selectElement.insertBefore(option, selectElement.options[selectElement.options.length - 1]);
+        }
+
+        function addCustomCategory() {
+            const name = customCategoryInputEl.value.trim();
+            if (name === "") {
+                showNotification('Category name cannot be empty.', 'error');
+                customCategoryInputEl.focus();
+                return;
+            }
+            if (customCategories.includes(name) || Array.from(categorySelectEl.options).some(opt => opt.value === name && opt.value !== "__add__")) {
+                 showNotification(`Category "${name}" already exists.`, 'info');
+                 customCategoryInputEl.focus();
+                 return;
+            }
+
+            customCategories.push(name);
+            localStorage.setItem("expenseCategories", JSON.stringify(customCategories));
+            addCategoryOption(name);
+            categorySelectEl.value = name; 
+            showNotification(`Category "${name}" added.`, 'success');
+            closeModal('categoryModal');
+            customCategoryInputEl.value = ""; 
+        }
+
+        // --- Expense Functions ---
+        function addExpense() {
+            const category = categorySelectEl.value;
+            const desc = descInputEl.value.trim();
+            const amount = parseFloat(amountInputEl.value);
+            const date = dateInputEl.value;
+
+            if (!desc) {
+                showNotification('Please enter a description.', 'error');
+                descInputEl.focus();
+                return;
+            }
+            if (isNaN(amount) || amount <= 0) {
+                showNotification('Please enter a valid positive amount.', 'error');
+                amountInputEl.focus();
+                return;
+            }
+             if (category === "__add__") { // If user clicked "Add Expense" while "Add Custom Category" was selected
+                showNotification('Please add your custom category first or select an existing one.', 'info');
+                openModal('categoryModal'); // Re-open category modal
+                return;
+            }
+            if (!category) {
+                showNotification('Please select a category.', 'error');
+                categorySelectEl.focus();
+                return;
+            }
+            if (!date) {
+                showNotification('Please select a date.', 'error');
+                dateInputEl.focus();
+                return;
+            }
+
+            const newExpense = {
+                id: Date.now().toString(),
+                desc,
+                amount,
+                category,
+                date
+            };
+            expenses.push(newExpense);
+            localStorage.setItem("expenseItems", JSON.stringify(expenses));
+
+            renderExpensesTable();
+            updateSummary();
+            updateChart();
+            clearInputs();
+            showNotification('Expense added successfully!', 'success');
+        }
+
+        function deleteExpense(expenseId) {
+            expenses = expenses.filter(expense => expense.id !== expenseId);
+            localStorage.setItem("expenseItems", JSON.stringify(expenses));
+            renderExpensesTable();
+            updateSummary();
+            updateChart();
+            showNotification('Expense deleted.', 'info');
+        }
+
+        function clearInputs() {
+            descInputEl.value = '';
+            amountInputEl.value = '';
+            // Do not reset category if it was a newly added custom one.
+            // categorySelectEl.value = ''; 
+            const today = new Date().toISOString().split('T')[0];
+            dateInputEl.value = today;
+        }
+
+        // --- UI Update Functions ---
+        function updateSummary() {
+            const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
+            const uniqueDays = new Set(expenses.map(e => e.date));
+            const avgDailySpending = uniqueDays.size > 0 ? totalSpent / uniqueDays.size : 0;
+
+            const categorySpending = {};
+            expenses.forEach(e => {
+                categorySpending[e.category] = (categorySpending[e.category] || 0) + e.amount;
+            });
+
+            const topSpendingCategory = Object.entries(categorySpending)
+                .sort(([, a], [, b]) => b - a)[0];
+
+            totalExpensesEl.innerText = totalSpent.toFixed(2);
+            avgPerDayEl.innerText = avgDailySpending.toFixed(2);
+            topCategoryEl.innerText = topSpendingCategory ? topSpendingCategory[0] : '-';
+
+            const remaining = budget - totalSpent;
+            remainingBudgetEl.innerText = remaining.toFixed(2);
+            remainingBudgetEl.classList.toggle('text-red-400', remaining < 0); // Ensure this class is for the text color
+            remainingBudgetEl.classList.toggle('text-white', remaining >= 0); // Default color if not negative
+
+            overdueAmountEl.textContent = remaining < 0 ? `Overdue: ₹${Math.abs(remaining).toFixed(2)}` : '';
+        }
+
+        function updateChart() {
+            const dailySpending = {};
+            expenses.forEach(e => {
+                dailySpending[e.date] = (dailySpending[e.date] || 0) + e.amount;
+            });
+
+            const sortedDates = Object.keys(dailySpending).sort((a, b) => new Date(a) - new Date(b));
+            const chartData = sortedDates.map(date => dailySpending[date]);
+
+            if (expenseChart) {
+                expenseChart.destroy();
+            }
+
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            expenseChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedDates.map(date => new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short'})),
+                    datasets: [{
+                        label: 'Daily Spending (₹)',
+                        data: chartData,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1,
+                        borderRadius: 5,
+                        hoverBackgroundColor: 'rgba(54, 162, 235, 0.8)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '₹' + value;
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderExpensesTable() {
+            expenseTableBodyEl.innerHTML = ''; 
+
+            if (expenses.length === 0) {
+                // Re-create the "No expenses" row if it was removed or doesn't exist
+                const newNoExpensesRow = document.createElement('tr');
+                newNoExpensesRow.id = 'noExpensesRow'; // Ensure it has the ID for future reference
+                const cell = newNoExpensesRow.insertCell();
+                cell.colSpan = 5;
+                cell.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center";
+                cell.textContent = "No expenses added yet.";
+                expenseTableBodyEl.appendChild(newNoExpensesRow);
+                return;
+            }
+            
+            const sortedExpenses = [...expenses].sort((a,b) => new Date(b.date) - new Date(a.date));
+
+            sortedExpenses.forEach(expense => {
+                const row = expenseTableBodyEl.insertRow();
+                row.className = "hover:bg-gray-50 transition-colors";
+
+                row.insertCell().textContent = expense.desc;
+                row.insertCell().textContent = `₹${expense.amount.toFixed(2)}`;
+                row.insertCell().textContent = expense.category;
+                row.insertCell().textContent = new Date(expense.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+                const actionsCell = row.insertCell();
+                actionsCell.classList.add("text-right", "px-6", "py-4", "whitespace-nowrap", "text-sm", "font-medium");
+                const deleteButton = document.createElement('button');
+                deleteButton.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 hover:text-red-700" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>`;
+                deleteButton.title = "Delete Expense";
+                deleteButton.onclick = () => deleteExpense(expense.id);
+                actionsCell.appendChild(deleteButton);
+                
+                Array.from(row.cells).forEach((cell, index) => {
+                    if(index < 4) { 
+                        cell.classList.add("px-6", "py-4", "whitespace-nowrap", "text-sm", "text-gray-700");
+                    }
+                });
+            });
+        }
+
+        // --- Data Export and Clear Functions ---
+        function exportData() {
+            if (expenses.length === 0 && budget === 0 && customCategories.length === 0) {
+                showNotification('No data to export.', 'info');
+                return;
+            }
+
+            let dataString = "Expense Tracker Data\n";
+            dataString += "=====================\n\n";
+            dataString += `Total Budget: ₹${budget.toFixed(2)}\n`;
+            dataString += `Date Exported: ${new Date().toLocaleString('en-IN')}\n\n`;
+
+            if (customCategories.length > 0) {
+                dataString += "Custom Categories:\n";
+                customCategories.forEach(cat => dataString += `- ${cat}\n`);
+                dataString += "\n";
+            } else {
+                dataString += "No custom categories added.\n\n";
+            }
+            if (expenses.length > 0) {
+                dataString += "Expenses:\n";
+                dataString += "-----------------------------------------------------------------\n";
+                dataString += "Date       | Description           | Category             | Amount (₹)\n"; // Adjusted padding
+                dataString += "-----------------------------------------------------------------\n";
+                const sortedExpenses = [...expenses].sort((a,b) => new Date(a.date) - new Date(b.date));
+                sortedExpenses.forEach(e => {
+                    const dateStr = new Date(e.date).toLocaleDateString('en-CA'); // YYYY-MM-DD
+                    const descStr = e.desc.padEnd(21).substring(0,21); // Max 21 chars
+                    const catStr = e.category.padEnd(20).substring(0,20); // Max 20 chars
+                    const amountStr = e.amount.toFixed(2).padStart(10);
+                    dataString += `${dateStr} | ${descStr} | ${catStr} | ${amountStr}\n`;
+                });
+                dataString += "-----------------------------------------------------------------\n\n";
+                const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
+                dataString += `Total Expenses: ₹${totalSpent.toFixed(2)}\n`;
+                dataString += `Remaining Budget: ₹${(budget - totalSpent).toFixed(2)}\n`;
+            } else {
+                dataString += "No expenses recorded.\n";
+            }
+            
+            const blob = new Blob([dataString], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `expense_tracker_data_${new Date().toISOString().slice(0,10)}.txt`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            showNotification('Data exported successfully!', 'success');
+        }
+
+        function clearAllData() {
+            // Confirmation is now handled by openModal('confirmClearModal') and the modal's button
+            localStorage.removeItem("expenseBudget");
+            localStorage.removeItem("expenseItems");
+            localStorage.removeItem("expenseCategories");
+            budget = 0;
+            expenses = [];
+            customCategories = [];
+
+            totalBudgetEl.innerText = '0.00';
+            budgetInputEl.value = '';
+            
+            const options = categorySelectEl.options;
+            for (let i = options.length - 2; i >= 0; i--) { 
+                const optionVal = options[i].value;
+                // Check against a list of default, non-removable categories
+                const defaultCategories = ["", "Groceries", "Travel", "Bills", "Entertainment", "Food", "Shopping", "Health", "Other"];
+                if (!defaultCategories.includes(optionVal)) {
+                    categorySelectEl.remove(i);
+                }
+            }
+            categorySelectEl.value = ''; 
+            
+            renderExpensesTable();
+            updateSummary();
+            updateChart(); 
+            closeModal('confirmClearModal');
+            showNotification('All data cleared successfully.', 'success');
+        }
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const storedBudget = localStorage.getItem("expenseBudget");
+            if (storedBudget) {
+                budget = parseFloat(storedBudget);
+                totalBudgetEl.innerText = budget.toFixed(2);
+            }
+
+            const storedCategories = localStorage.getItem("expenseCategories");
+            if (storedCategories) {
+                customCategories = JSON.parse(storedCategories);
+                customCategories.forEach(cat => addCategoryOption(cat));
+            }
+
+            const storedExpenses = localStorage.getItem("expenseItems");
+            if (storedExpenses) {
+                expenses = JSON.parse(storedExpenses);
+            }
+            
+            // Set default date for new expenses to today
+            const today = new Date().toISOString().split('T')[0];
+            dateInputEl.value = today;
+
+            renderExpensesTable();
+            updateSummary();
+            updateChart();
+
+            // Close modals if accidentally left open (e.g. on refresh with `flex` class still there)
+            // This is a fallback, the main fix is removing `flex` from HTML
+            ['budgetModal', 'categoryModal', 'confirmClearModal'].forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal && modal.classList.contains('flex')) {
+                     // Ensure animation classes are reset for proper closing
+                    const modalContent = modal.querySelector('.animate-modalEnter');
+                    if (modalContent) {
+                        modalContent.classList.add('scale-95', 'opacity-0');
+                        modalContent.classList.remove('scale-100', 'opacity-100');
+                    }
+                    modal.classList.remove('flex');
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
