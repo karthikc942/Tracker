@@ -1,0 +1,1825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning Tracker</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .status-not-started { @apply bg-gray-100 text-gray-800; }
+        .status-in-progress { @apply bg-yellow-100 text-yellow-800; }
+        .status-completed { @apply bg-green-100 text-green-800; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "demo-key",
+            authDomain: "demo-project.firebaseapp.com",
+            projectId: "demo-project",
+            storageBucket: "demo-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "demo-app-id"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // Mock data for demo purposes
+        const DEMO_USER_ID = "demo-user-123";
+        const APP_ID = "learning-tracker-demo";
+
+        // Local Storage utilities
+        const STORAGE_KEYS = {
+            domains: 'learning-tracker-domains',
+            technologies: 'learning-tracker-technologies',
+            topics: 'learning-tracker-topics'
+        };
+
+        const saveToLocalStorage = (key, data) => {
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        };
+
+        const loadFromLocalStorage = (key) => {
+            try {
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : [];
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+                return [];
+            }
+        };
+
+        const generateId = () => {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        };
+
+        // Custom hooks for data operations with localStorage
+        const useLocalStorage = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                // Simulate authentication
+                setTimeout(() => {
+                    setUser({ uid: DEMO_USER_ID });
+                    setLoading(false);
+                }, 500);
+            }, []);
+
+            const addDocument = async (collectionName, data) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const newDocument = {
+                        id: generateId(),
+                        ...data,
+                        userId: DEMO_USER_ID,
+                        createdAt: new Date().toISOString()
+                    };
+                    const updatedData = [...existingData, newDocument];
+                    saveToLocalStorage(storageKey, updatedData);
+                    return newDocument.id;
+                } catch (error) {
+                    console.error('Error adding document:', error);
+                    throw error;
+                }
+            };
+
+            const updateDocument = async (collectionName, docId, data) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const updatedData = existingData.map(item => 
+                        item.id === docId 
+                            ? { ...item, ...data, updatedAt: new Date().toISOString() }
+                            : item
+                    );
+                    saveToLocalStorage(storageKey, updatedData);
+                } catch (error) {
+                    console.error('Error updating document:', error);
+                    throw error;
+                }
+            };
+
+            const deleteDocument = async (collectionName, docId) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const updatedData = existingData.filter(item => item.id !== docId);
+                    saveToLocalStorage(storageKey, updatedData);
+                } catch (error) {
+                    console.error('Error deleting document:', error);
+                    throw error;
+                }
+            };
+
+            const loadCollection = (collectionName) => {
+                return loadFromLocalStorage(STORAGE_KEYS[collectionName]);
+            };
+
+            return {
+                user,
+                loading,
+                addDocument,
+                updateDocument,
+                deleteDocument,
+                loadCollection
+            };
+        };
+
+        // Status badge component
+        const StatusBadge = ({ status }) => {
+            const getStatusClass = (status) => {
+                switch (status) {
+                    case 'Not Started': return 'bg-gray-100 text-gray-800';
+                    case 'In Progress': return 'bg-yellow-100 text-yellow-800';
+                    case 'Completed': return 'bg-green-100 text-green-800';
+                    default: return 'bg-gray-100 text-gray-800';
+                }
+            };
+
+            return (
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(status)}`}>
+                    {status}
+                </span>
+            );
+        };
+
+        // Loading component
+        const LoadingSpinner = () => (
+            <div className="flex justify-center items-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+        );
+
+        // Modal component
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center p-6 border-b">
+                            <h2 className="text-xl font-semibold">{title}</h2>
+                            <button
+                                onClick={onClose}
+                                className="text-gray-400 hover:text-gray-600 text-2xl"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Dashboard Component
+        const Dashboard = ({ onNavigate, domains, technologies, topics }) => {
+            const getDomainProgress = (domainId) => {
+                const domainTechs = technologies.filter(tech => tech.domainId === domainId);
+                const domainTopics = topics.filter(topic => 
+                    domainTechs.some(tech => tech.id === topic.technologyId)
+                );
+                
+                if (domainTopics.length === 0) return 0;
+                
+                const completedTopics = domainTopics.filter(topic => topic.status === 'Completed');
+                return Math.round((completedTopics.length / domainTopics.length) * 100);
+            };
+
+            const getTotalProgress = () => {
+                if (topics.length === 0) return 0;
+                const completedTopics = topics.filter(topic => topic.status === 'Completed');
+                return Math.round((completedTopics.length / topics.length) * 100);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-sm p-6">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-4">Learning Progress Overview</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-blue-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-blue-600">{domains.length}</div>
+                                <div className="text-sm text-gray-600">Domains</div>
+                            </div>
+                            <div className="bg-green-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-green-600">{technologies.length}</div>
+                                <div className="text-sm text-gray-600">Technologies</div>
+                            </div>
+                            <div className="bg-purple-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-purple-600">{topics.length}</div>
+                                <div className="text-sm text-gray-600">Topics</div>
+                            </div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+                                <span className="text-sm font-medium text-gray-900">{getTotalProgress()}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${getTotalProgress()}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow-sm p-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Domains</h3>
+                        {domains.length === 0 ? (
+                            <div className="text-center py-8">
+                                <div className="text-gray-500 mb-4">No domains yet. Start by creating your first domain!</div>
+                                <button
+                                    onClick={() => onNavigate('domains')}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                                >
+                                    Create Domain
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {domains.map(domain => (
+                                    <div
+                                        key={domain.id}
+                                        className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                                        onClick={() => onNavigate('domain', domain.id)}
+                                    >
+                                        <h4 className="font-semibold text-gray-900 mb-2">{domain.name}</h4>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-sm text-gray-600">Progress</span>
+                                            <span className="text-sm font-medium">{getDomainProgress(domain.id)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-1">
+                                            <div 
+                                                className="bg-blue-600 h-1 rounded-full"
+                                                style={{ width: `${getDomainProgress(domain.id)}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            {technologies.filter(tech => tech.domainId === domain.id).length} technologies
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Domain Management Component
+        const DomainManagement = ({ onNavigate, domains, technologies, onAddDomain }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newDomainName, setNewDomainName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleAddDomain = async (e) => {
+                e.preventDefault();
+                if (!newDomainName.trim()) return;
+
+                setLoading(true);
+                try {
+                    await onAddDomain({ name: newDomainName.trim() });
+                    setNewDomainName('');
+                    setShowAddModal(false);
+                } catch (error) {
+                    console.error('Error adding domain:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">Domains</h2>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Domain
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {domains.map(domain => (
+                            <div
+                                key={domain.id}
+                                className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+                                onClick={() => onNavigate('domain', domain.id)}
+                            >
+                                <h3 className="text-lg font-semibold text-gray-900 mb-2">{domain.name}</h3>
+                                <div className="text-sm text-gray-600">
+                                    {technologies.filter(tech => tech.domainId === domain.id).length} technologies
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Domain"
+                    >
+                        <form onSubmit={handleAddDomain} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Domain Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newDomainName}
+                                    onChange={(e) => setNewDomainName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="e.g., Frontend Development"
+                                    required
+                                />
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {loading ? 'Adding...' : 'Add Domain'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Domain View Component
+        const DomainView = ({ domainId, onNavigate, domains, technologies, onAddTechnology }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newTechName, setNewTechName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const domain = domains.find(d => d.id === domainId);
+            const domainTechnologies = technologies.filter(tech => tech.domainId === domainId);
+
+            const handleAddTechnology = async (e) => {
+                e.preventDefault();
+                if (!newTechName.trim()) return;
+
+                setLoading(true);
+                try {
+                    await onAddTechnology({ 
+                        name: newTechName.trim(),
+                        domainId: domainId
+                    });
+                    setNewTechName('');
+                    setShowAddModal(false);
+                } catch (error) {
+                    console.error('Error adding technology:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            if (!domain) {
+                return <div className="text-center py-8">Domain not found</div>;
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => onNavigate('domains')}
+                            className="text-blue-600 hover:text-blue-800"
+                        >
+                            ← Back to Domains
+                        </button>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">{domain.name}</h2>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Technology
+                        </button>
+                    </div>
+
+                    {domainTechnologies.length === 0 ? (
+                        <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+                            <div className="text-gray-500 mb-4">No technologies in this domain yet.</div>
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                Add First Technology
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {domainTechnologies.map(technology => (
+                                <div
+                                    key={technology.id}
+                                    className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+                                    onClick={() => onNavigate('technology', technology.id)}
+                                >
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">{technology.name}</h3>
+                                    <div className="text-sm text-gray-600">
+                                        Click to view topics
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Technology"
+                    >
+                        <form onSubmit={handleAddTechnology} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Technology Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newTechName}
+                                    onChange={(e) => setNewTechName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="e.g., React"
+                                    required
+                                />
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {loading ? 'Adding...' : 'Add Technology'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Technology View Component
+        const TechnologyView = ({ technologyId, onNavigate, technologies, topics, domains, onAddTopic, onUpdateTopic, onDeleteTopic }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [editingTopic, setEditingTopic] = useState(null);
+
+            const technology = technologies.find(t => t.id === technologyId);
+            const domain = domains.find(d => d.id === technology?.domainId);
+            const technologyTopics = topics.filter(topic => topic.technologyId === technologyId);
+
+            // Resource links as array of { name, url }
+            const TopicForm = ({ topic, onSubmit, onCancel, loading }) => {
+                const [formData, setFormData] = useState({
+                    title: topic?.title || '',
+                    description: topic?.description || '',
+                    resources: Array.isArray(topic?.resources)
+                        ? topic.resources
+                        : (Array.isArray(topic?.resourceLinks) ? topic.resourceLinks.map(url => ({ name: '', url })) : []),
+                    status: topic?.status || 'Not Started'
+                });
+
+                const handleResourceChange = (idx, field, value) => {
+                    setFormData(prev => {
+                        const resources = prev.resources.map((r, i) => i === idx ? { ...r, [field]: value } : r);
+                        return { ...prev, resources };
+                    });
+                };
+
+                const addResource = () => {
+                    setFormData(prev => ({ ...prev, resources: [...prev.resources, { name: '', url: '' }] }));
+                };
+
+                const removeResource = (idx) => {
+                    setFormData(prev => ({ ...prev, resources: prev.resources.filter((_, i) => i !== idx) }));
+                };
+
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    // Only keep resources with a url
+                    const resources = (formData.resources || []).filter(r => r.url.trim());
+                    onSubmit({
+                        ...formData,
+                        resources
+                    });
+                };
+
+                return (
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Title
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.title}
+                                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Description
+                            </label>
+                            <textarea
+                                value={formData.description}
+                                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                rows="3"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Resource Links
+                            </label>
+                            <div className="space-y-2">
+                                {(formData.resources || []).map((resource, idx) => (
+                                    <div key={idx} className="flex gap-2 items-center">
+                                        <input
+                                            type="text"
+                                            placeholder="Resource Name"
+                                            value={resource.name}
+                                            onChange={e => handleResourceChange(idx, 'name', e.target.value)}
+                                            className="flex-1 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                                        />
+                                        <input
+                                            type="url"
+                                            placeholder="Resource URL"
+                                            value={resource.url}
+                                            onChange={e => handleResourceChange(idx, 'url', e.target.value)}
+                                            className="flex-1 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                                            required
+                                        />
+                                        <button type="button" onClick={() => removeResource(idx)} className="text-red-500 hover:text-red-700 text-lg px-2">×</button>
+                                    </div>
+                                ))}
+                                <button type="button" onClick={addResource} className="text-blue-600 hover:underline text-sm mt-1">+ Add Resource</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Status
+                            </label>
+                            <select
+                                value={formData.status}
+                                onChange={(e) => setFormData({...formData, status: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="Not Started">Not Started</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Completed">Completed</option>
+                            </select>
+                        </div>
+                        <div className="flex space-x-3">
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                            >
+                                {loading ? 'Saving...' : (topic ? 'Update Topic' : 'Add Topic')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onCancel}
+                                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                );
+            };
+
+            if (!technology) {
+                return <div className="text-center py-8">Technology not found</div>;
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => onNavigate('domain', technology.domainId)}
+                            className="text-blue-600 hover:text-blue-800"
+                        >
+                            ← Back to {domain?.name}
+                        </button>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-900">{technology.name}</h2>
+                            <p className="text-gray-600">in {domain?.name}</p>
+                        </div>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Topic
+                        </button>
+                    </div>
+
+                    {technologyTopics.length === 0 ? (
+                        <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+                            <div className="text-gray-500 mb-4">No topics for this technology yet.</div>
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                Add First Topic
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {technologyTopics.map(topic => (
+                                <div key={topic.id} className="bg-white rounded-lg shadow-sm p-6">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                            <h3 className="text-lg font-semibold text-gray-900 mb-2">{topic.title}</h3>
+                                            <StatusBadge status={topic.status} />
+                                        </div>
+                                        <div className="flex space-x-2">
+                                            <button
+                                                onClick={() => setEditingTopic(topic)}
+                                                className="text-blue-600 hover:text-blue-800 text-sm"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteTopic(topic.id)}
+                                                className="text-red-600 hover:text-red-800 text-sm"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {topic.description && (
+                                        <p className="text-gray-600 mb-3">{topic.description}</p>
+                                    )}
+                                    {Array.isArray(topic.resources) && topic.resources.length > 0 && (
+                                        <div>
+                                            <h4 className="text-sm font-medium text-gray-700 mb-2">Resources:</h4>
+                                            <ul className="space-y-1">
+                                                {topic.resources.map((res, index) => (
+                                                    <li key={index}>
+                                                        <a
+                                                            href={res.url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-blue-600 hover:text-blue-800 text-sm break-all"
+                                                        >
+                                                            {res.name ? res.name : res.url}
+                                                        </a>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Topic"
+                    >
+                        <TopicForm
+                            onSubmit={async (data) => {
+                                try {
+                                    await onAddTopic({
+                                        ...data,
+                                        technologyId: technologyId
+                                    });
+                                    setShowAddModal(false);
+                                } catch (error) {
+                                    console.error('Error adding topic:', error);
+                                }
+                            }}
+                            onCancel={() => setShowAddModal(false)}
+                        />
+                    </Modal>
+
+                    <Modal
+                        isOpen={!!editingTopic}
+                        onClose={() => setEditingTopic(null)}
+                        title="Edit Topic"
+                    >
+                        {editingTopic && (
+                            <TopicForm
+                                topic={editingTopic}
+                                onSubmit={async (data) => {
+                                    try {
+                                        await onUpdateTopic(editingTopic.id, data);
+                                        setEditingTopic(null);
+                                    } catch (error) {
+                                        console.error('Error updating topic:', error);
+                                    }
+                                }}
+                                onCancel={() => setEditingTopic(null)}
+                            />
+                        )}
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const LearningTracker = () => {
+            const { user, loading, addDocument, updateDocument, deleteDocument, loadCollection } = useLocalStorage();
+            
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [selectedId, setSelectedId] = useState(null);
+            
+            const [domains, setDomains] = useState([]);
+            const [technologies, setTechnologies] = useState([]);
+            const [topics, setTopics] = useState([]);
+
+            // Load data from localStorage on component mount
+            useEffect(() => {
+                if (!user) return;
+
+                setDomains(loadCollection('domains'));
+                setTechnologies(loadCollection('technologies'));
+                setTopics(loadCollection('topics'));
+            }, [user]);
+
+            const navigate = (view, id = null) => {
+                setCurrentView(view);
+                setSelectedId(id);
+            };
+
+            const refreshData = () => {
+                setDomains(loadCollection('domains'));
+                setTechnologies(loadCollection('technologies'));
+                setTopics(loadCollection('topics'));
+            };
+
+            const handleAddDomain = async (data) => {
+                await addDocument('domains', data);
+                refreshData();
+            };
+
+            const handleAddTechnology = async (data) => {
+                await addDocument('technologies', data);
+                refreshData();
+            };
+
+            const handleAddTopic = async (data) => {
+                await addDocument('topics', data);
+                refreshData();
+            };
+
+            const handleUpdateTopic = async (id, data) => {
+                await updateDocument('topics', id, data);
+                refreshData();
+            };
+
+            const handleDeleteTopic = async (id) => {
+                await deleteDocument('topics', id);
+                refreshData();
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                        <LoadingSpinner />
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <header className="bg-white shadow-sm border-b">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex justify-between items-center py-4">
+                                <div className="flex items-center space-x-4">
+                                    <button
+                                        onClick={() => navigate('dashboard')}
+                                        className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors"
+                                    >
+                                        Learning Tracker
+                                    </button>
+                                    <nav className="hidden md:flex space-x-6">
+                                        <button
+                                            onClick={() => navigate('dashboard')}
+                                            className={`text-sm font-medium transition-colors ${
+                                                currentView === 'dashboard' 
+                                                    ? 'text-blue-600' 
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Dashboard
+                                        </button>
+                                        <button
+                                            onClick={() => navigate('domains')}
+                                            className={`text-sm font-medium transition-colors ${
+                                                currentView === 'domains' || currentView === 'domain' 
+                                                    ? 'text-blue-600' 
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Domains
+                                        </button>
+                                    </nav>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                    User: {DEMO_USER_ID}
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        {currentView === 'dashboard' && (
+                            <Dashboard
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                topics={topics}
+                            />
+                        )}
+                        
+                        {currentView === 'domains' && (
+                            <DomainManagement
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                onAddDomain={handleAddDomain}
+                            />
+                        )}
+                        
+                        {currentView === 'domain' && selectedId && (
+                            <DomainView
+                                domainId={selectedId}
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                onAddTechnology={handleAddTechnology}
+                            />
+                        )}
+                        
+                        {currentView === 'technology' && selectedId && (
+                            <TechnologyView
+                                technologyId={selectedId}
+                                onNavigate={navigate}
+                                technologies={technologies}
+                                topics={topics}
+                                domains={domains}
+                                onAddTopic={handleAddTopic}
+                                onUpdateTopic={handleUpdateTopic}
+                                onDeleteTopic={handleDeleteTopic}
+                            />
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<LearningTracker />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning Tracker</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .status-not-started { @apply bg-gray-100 text-gray-800; }
+        .status-in-progress { @apply bg-yellow-100 text-yellow-800; }
+        .status-completed { @apply bg-green-100 text-green-800; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "demo-key",
+            authDomain: "demo-project.firebaseapp.com",
+            projectId: "demo-project",
+            storageBucket: "demo-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "demo-app-id"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // Mock data for demo purposes
+        const DEMO_USER_ID = "demo-user-123";
+        const APP_ID = "learning-tracker-demo";
+
+        // Local Storage utilities
+        const STORAGE_KEYS = {
+            domains: 'learning-tracker-domains',
+            technologies: 'learning-tracker-technologies',
+            topics: 'learning-tracker-topics'
+        };
+
+        const saveToLocalStorage = (key, data) => {
+            try {
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        };
+
+        const loadFromLocalStorage = (key) => {
+            try {
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : [];
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+                return [];
+            }
+        };
+
+        const generateId = () => {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        };
+
+        // Custom hooks for data operations with localStorage
+        const useLocalStorage = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                // Simulate authentication
+                setTimeout(() => {
+                    setUser({ uid: DEMO_USER_ID });
+                    setLoading(false);
+                }, 500);
+            }, []);
+
+            const addDocument = async (collectionName, data) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const newDocument = {
+                        id: generateId(),
+                        ...data,
+                        userId: DEMO_USER_ID,
+                        createdAt: new Date().toISOString()
+                    };
+                    const updatedData = [...existingData, newDocument];
+                    saveToLocalStorage(storageKey, updatedData);
+                    return newDocument.id;
+                } catch (error) {
+                    console.error('Error adding document:', error);
+                    throw error;
+                }
+            };
+
+            const updateDocument = async (collectionName, docId, data) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const updatedData = existingData.map(item => 
+                        item.id === docId 
+                            ? { ...item, ...data, updatedAt: new Date().toISOString() }
+                            : item
+                    );
+                    saveToLocalStorage(storageKey, updatedData);
+                } catch (error) {
+                    console.error('Error updating document:', error);
+                    throw error;
+                }
+            };
+
+            const deleteDocument = async (collectionName, docId) => {
+                try {
+                    const storageKey = STORAGE_KEYS[collectionName];
+                    const existingData = loadFromLocalStorage(storageKey);
+                    const updatedData = existingData.filter(item => item.id !== docId);
+                    saveToLocalStorage(storageKey, updatedData);
+                } catch (error) {
+                    console.error('Error deleting document:', error);
+                    throw error;
+                }
+            };
+
+            const loadCollection = (collectionName) => {
+                return loadFromLocalStorage(STORAGE_KEYS[collectionName]);
+            };
+
+            return {
+                user,
+                loading,
+                addDocument,
+                updateDocument,
+                deleteDocument,
+                loadCollection
+            };
+        };
+
+        // Status badge component
+        const StatusBadge = ({ status }) => {
+            const getStatusClass = (status) => {
+                switch (status) {
+                    case 'Not Started': return 'bg-gray-100 text-gray-800';
+                    case 'In Progress': return 'bg-yellow-100 text-yellow-800';
+                    case 'Completed': return 'bg-green-100 text-green-800';
+                    default: return 'bg-gray-100 text-gray-800';
+                }
+            };
+
+            return (
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(status)}`}>
+                    {status}
+                </span>
+            );
+        };
+
+        // Loading component
+        const LoadingSpinner = () => (
+            <div className="flex justify-center items-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+        );
+
+        // Modal component
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center p-6 border-b">
+                            <h2 className="text-xl font-semibold">{title}</h2>
+                            <button
+                                onClick={onClose}
+                                className="text-gray-400 hover:text-gray-600 text-2xl"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Dashboard Component
+        const Dashboard = ({ onNavigate, domains, technologies, topics }) => {
+            const getDomainProgress = (domainId) => {
+                const domainTechs = technologies.filter(tech => tech.domainId === domainId);
+                const domainTopics = topics.filter(topic => 
+                    domainTechs.some(tech => tech.id === topic.technologyId)
+                );
+                
+                if (domainTopics.length === 0) return 0;
+                
+                const completedTopics = domainTopics.filter(topic => topic.status === 'Completed');
+                return Math.round((completedTopics.length / domainTopics.length) * 100);
+            };
+
+            const getTotalProgress = () => {
+                if (topics.length === 0) return 0;
+                const completedTopics = topics.filter(topic => topic.status === 'Completed');
+                return Math.round((completedTopics.length / topics.length) * 100);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-sm p-6">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-4">Learning Progress Overview</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-blue-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-blue-600">{domains.length}</div>
+                                <div className="text-sm text-gray-600">Domains</div>
+                            </div>
+                            <div className="bg-green-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-green-600">{technologies.length}</div>
+                                <div className="text-sm text-gray-600">Technologies</div>
+                            </div>
+                            <div className="bg-purple-50 rounded-lg p-4">
+                                <div className="text-2xl font-bold text-purple-600">{topics.length}</div>
+                                <div className="text-sm text-gray-600">Topics</div>
+                            </div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+                                <span className="text-sm font-medium text-gray-900">{getTotalProgress()}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${getTotalProgress()}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow-sm p-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Domains</h3>
+                        {domains.length === 0 ? (
+                            <div className="text-center py-8">
+                                <div className="text-gray-500 mb-4">No domains yet. Start by creating your first domain!</div>
+                                <button
+                                    onClick={() => onNavigate('domains')}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                                >
+                                    Create Domain
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {domains.map(domain => (
+                                    <div
+                                        key={domain.id}
+                                        className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                                        onClick={() => onNavigate('domain', domain.id)}
+                                    >
+                                        <h4 className="font-semibold text-gray-900 mb-2">{domain.name}</h4>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-sm text-gray-600">Progress</span>
+                                            <span className="text-sm font-medium">{getDomainProgress(domain.id)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-1">
+                                            <div 
+                                                className="bg-blue-600 h-1 rounded-full"
+                                                style={{ width: `${getDomainProgress(domain.id)}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            {technologies.filter(tech => tech.domainId === domain.id).length} technologies
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Domain Management Component
+        const DomainManagement = ({ onNavigate, domains, technologies, onAddDomain }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newDomainName, setNewDomainName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleAddDomain = async (e) => {
+                e.preventDefault();
+                if (!newDomainName.trim()) return;
+
+                setLoading(true);
+                try {
+                    await onAddDomain({ name: newDomainName.trim() });
+                    setNewDomainName('');
+                    setShowAddModal(false);
+                } catch (error) {
+                    console.error('Error adding domain:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">Domains</h2>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Domain
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {domains.map(domain => (
+                            <div
+                                key={domain.id}
+                                className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+                                onClick={() => onNavigate('domain', domain.id)}
+                            >
+                                <h3 className="text-lg font-semibold text-gray-900 mb-2">{domain.name}</h3>
+                                <div className="text-sm text-gray-600">
+                                    {technologies.filter(tech => tech.domainId === domain.id).length} technologies
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Domain"
+                    >
+                        <form onSubmit={handleAddDomain} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Domain Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newDomainName}
+                                    onChange={(e) => setNewDomainName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="e.g., Frontend Development"
+                                    required
+                                />
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {loading ? 'Adding...' : 'Add Domain'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Domain View Component
+        const DomainView = ({ domainId, onNavigate, domains, technologies, onAddTechnology }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newTechName, setNewTechName] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const domain = domains.find(d => d.id === domainId);
+            const domainTechnologies = technologies.filter(tech => tech.domainId === domainId);
+
+            const handleAddTechnology = async (e) => {
+                e.preventDefault();
+                if (!newTechName.trim()) return;
+
+                setLoading(true);
+                try {
+                    await onAddTechnology({ 
+                        name: newTechName.trim(),
+                        domainId: domainId
+                    });
+                    setNewTechName('');
+                    setShowAddModal(false);
+                } catch (error) {
+                    console.error('Error adding technology:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            if (!domain) {
+                return <div className="text-center py-8">Domain not found</div>;
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => onNavigate('domains')}
+                            className="text-blue-600 hover:text-blue-800"
+                        >
+                            ← Back to Domains
+                        </button>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">{domain.name}</h2>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Technology
+                        </button>
+                    </div>
+
+                    {domainTechnologies.length === 0 ? (
+                        <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+                            <div className="text-gray-500 mb-4">No technologies in this domain yet.</div>
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                Add First Technology
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {domainTechnologies.map(technology => (
+                                <div
+                                    key={technology.id}
+                                    className="bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+                                    onClick={() => onNavigate('technology', technology.id)}
+                                >
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">{technology.name}</h3>
+                                    <div className="text-sm text-gray-600">
+                                        Click to view topics
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Technology"
+                    >
+                        <form onSubmit={handleAddTechnology} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Technology Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newTechName}
+                                    onChange={(e) => setNewTechName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    placeholder="e.g., React"
+                                    required
+                                />
+                            </div>
+                            <div className="flex space-x-3">
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {loading ? 'Adding...' : 'Add Technology'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Technology View Component
+        const TechnologyView = ({ technologyId, onNavigate, technologies, topics, domains, onAddTopic, onUpdateTopic, onDeleteTopic }) => {
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [editingTopic, setEditingTopic] = useState(null);
+
+            const technology = technologies.find(t => t.id === technologyId);
+            const domain = domains.find(d => d.id === technology?.domainId);
+            const technologyTopics = topics.filter(topic => topic.technologyId === technologyId);
+
+            const TopicForm = ({ topic, onSubmit, onCancel, loading }) => {
+                const [formData, setFormData] = useState({
+                    title: topic?.title || '',
+                    description: topic?.description || '',
+                    resourceLinks: topic?.resourceLinks?.join('\n') || '',
+                    status: topic?.status || 'Not Started'
+                });
+
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const links = formData.resourceLinks
+                        .split('\n')
+                        .map(link => link.trim())
+                        .filter(link => link);
+                    
+                    onSubmit({
+                        ...formData,
+                        resourceLinks: links
+                    });
+                };
+
+                return (
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Title
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.title}
+                                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Description
+                            </label>
+                            <textarea
+                                value={formData.description}
+                                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                rows="3"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Resource Links (one per line)
+                            </label>
+                            <textarea
+                                value={formData.resourceLinks}
+                                onChange={(e) => setFormData({...formData, resourceLinks: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                rows="3"
+                                placeholder="https://example.com/docs&#10;https://example.com/tutorial"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Status
+                            </label>
+                            <select
+                                value={formData.status}
+                                onChange={(e) => setFormData({...formData, status: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="Not Started">Not Started</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Completed">Completed</option>
+                            </select>
+                        </div>
+                        <div className="flex space-x-3">
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                            >
+                                {loading ? 'Saving...' : (topic ? 'Update Topic' : 'Add Topic')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onCancel}
+                                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                );
+            };
+
+            if (!technology) {
+                return <div className="text-center py-8">Technology not found</div>;
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => onNavigate('domain', technology.domainId)}
+                            className="text-blue-600 hover:text-blue-800"
+                        >
+                            ← Back to {domain?.name}
+                        </button>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-900">{technology.name}</h2>
+                            <p className="text-gray-600">in {domain?.name}</p>
+                        </div>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Add Topic
+                        </button>
+                    </div>
+
+                    {technologyTopics.length === 0 ? (
+                        <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+                            <div className="text-gray-500 mb-4">No topics for this technology yet.</div>
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                Add First Topic
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {technologyTopics.map(topic => (
+                                <div key={topic.id} className="bg-white rounded-lg shadow-sm p-6">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                            <h3 className="text-lg font-semibold text-gray-900 mb-2">{topic.title}</h3>
+                                            <StatusBadge status={topic.status} />
+                                        </div>
+                                        <div className="flex space-x-2">
+                                            <button
+                                                onClick={() => setEditingTopic(topic)}
+                                                className="text-blue-600 hover:text-blue-800 text-sm"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteTopic(topic.id)}
+                                                className="text-red-600 hover:text-red-800 text-sm"
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {topic.description && (
+                                        <p className="text-gray-600 mb-3">{topic.description}</p>
+                                    )}
+                                    {topic.resourceLinks && topic.resourceLinks.length > 0 && (
+                                        <div>
+                                            <h4 className="text-sm font-medium text-gray-700 mb-2">Resources:</h4>
+                                            <ul className="space-y-1">
+                                                {topic.resourceLinks.map((link, index) => (
+                                                    <li key={index}>
+                                                        <a
+                                                            href={link}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-blue-600 hover:text-blue-800 text-sm break-all"
+                                                        >
+                                                            {link}
+                                                        </a>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Modal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        title="Add New Topic"
+                    >
+                        <TopicForm
+                            onSubmit={async (data) => {
+                                try {
+                                    await onAddTopic({
+                                        ...data,
+                                        technologyId: technologyId
+                                    });
+                                    setShowAddModal(false);
+                                } catch (error) {
+                                    console.error('Error adding topic:', error);
+                                }
+                            }}
+                            onCancel={() => setShowAddModal(false)}
+                        />
+                    </Modal>
+
+                    <Modal
+                        isOpen={!!editingTopic}
+                        onClose={() => setEditingTopic(null)}
+                        title="Edit Topic"
+                    >
+                        {editingTopic && (
+                            <TopicForm
+                                topic={editingTopic}
+                                onSubmit={async (data) => {
+                                    try {
+                                        await onUpdateTopic(editingTopic.id, data);
+                                        setEditingTopic(null);
+                                    } catch (error) {
+                                        console.error('Error updating topic:', error);
+                                    }
+                                }}
+                                onCancel={() => setEditingTopic(null)}
+                            />
+                        )}
+                    </Modal>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const LearningTracker = () => {
+            const { user, loading, addDocument, updateDocument, deleteDocument, loadCollection } = useLocalStorage();
+            
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [selectedId, setSelectedId] = useState(null);
+            
+            const [domains, setDomains] = useState([]);
+            const [technologies, setTechnologies] = useState([]);
+            const [topics, setTopics] = useState([]);
+
+            // Load data from localStorage on component mount
+            useEffect(() => {
+                if (!user) return;
+
+                setDomains(loadCollection('domains'));
+                setTechnologies(loadCollection('technologies'));
+                setTopics(loadCollection('topics'));
+            }, [user]);
+
+            const navigate = (view, id = null) => {
+                setCurrentView(view);
+                setSelectedId(id);
+            };
+
+            const refreshData = () => {
+                setDomains(loadCollection('domains'));
+                setTechnologies(loadCollection('technologies'));
+                setTopics(loadCollection('topics'));
+            };
+
+            const handleAddDomain = async (data) => {
+                await addDocument('domains', data);
+                refreshData();
+            };
+
+            const handleAddTechnology = async (data) => {
+                await addDocument('technologies', data);
+                refreshData();
+            };
+
+            const handleAddTopic = async (data) => {
+                await addDocument('topics', data);
+                refreshData();
+            };
+
+            const handleUpdateTopic = async (id, data) => {
+                await updateDocument('topics', id, data);
+                refreshData();
+            };
+
+            const handleDeleteTopic = async (id) => {
+                await deleteDocument('topics', id);
+                refreshData();
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                        <LoadingSpinner />
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <header className="bg-white shadow-sm border-b">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex justify-between items-center py-4">
+                                <div className="flex items-center space-x-4">
+                                    <button
+                                        onClick={() => navigate('dashboard')}
+                                        className="text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors"
+                                    >
+                                        Learning Tracker
+                                    </button>
+                                    <nav className="hidden md:flex space-x-6">
+                                        <button
+                                            onClick={() => navigate('dashboard')}
+                                            className={`text-sm font-medium transition-colors ${
+                                                currentView === 'dashboard' 
+                                                    ? 'text-blue-600' 
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Dashboard
+                                        </button>
+                                        <button
+                                            onClick={() => navigate('domains')}
+                                            className={`text-sm font-medium transition-colors ${
+                                                currentView === 'domains' || currentView === 'domain' 
+                                                    ? 'text-blue-600' 
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Domains
+                                        </button>
+                                    </nav>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        {currentView === 'dashboard' && (
+                            <Dashboard
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                topics={topics}
+                            />
+                        )}
+                        
+                        {currentView === 'domains' && (
+                            <DomainManagement
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                onAddDomain={handleAddDomain}
+                            />
+                        )}
+                        
+                        {currentView === 'domain' && selectedId && (
+                            <DomainView
+                                domainId={selectedId}
+                                onNavigate={navigate}
+                                domains={domains}
+                                technologies={technologies}
+                                onAddTechnology={handleAddTechnology}
+                            />
+                        )}
+                        
+                        {currentView === 'technology' && selectedId && (
+                            <TechnologyView
+                                technologyId={selectedId}
+                                onNavigate={navigate}
+                                technologies={technologies}
+                                topics={topics}
+                                domains={domains}
+                                onAddTopic={handleAddTopic}
+                                onUpdateTopic={handleUpdateTopic}
+                                onDeleteTopic={handleDeleteTopic}
+                            />
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<LearningTracker />, document.getElementById('root'));
+    </script>
+</body>
+</html>
